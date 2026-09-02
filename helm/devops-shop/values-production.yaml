@@ -1,0 +1,8 @@
+replicaCount: 3
+
+image:
+  pullPolicy: IfNotPresent
+
+ingress:
+  enabled: true
+  host: devops-shop.example.local

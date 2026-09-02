@@ -1,0 +1,10 @@
+groups:
+  - name: devops-shop
+    rules:
+      - alert: DevopsShopDown
+        expr: up{job="devops-shop"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: devops-shop is down

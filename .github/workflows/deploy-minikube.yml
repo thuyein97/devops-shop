@@ -1,0 +1,100 @@
+name: Deploy to Local Minikube
+
+on:
+  # push:
+  #   branches: [main]
+  workflow_dispatch:
+
+# IMPORTANT:
+# This workflow requires a self-hosted runner on the same machine as Minikube.
+# Add the labels: self-hosted, linux, x64, minikube
+
+permissions:
+  contents: read
+
+concurrency:
+  group: minikube-devops-shop
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and Deploy to Minikube
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - minikube
+
+    environment:
+      name: development
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify tools
+        run: |
+          docker version
+          kubectl version --client
+          minikube version
+          helm version
+
+      - name: Verify Minikube
+        run: |
+          minikube status
+          kubectl get nodes
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build image inside Minikube
+        run: |
+          minikube image build \
+            -t devops-shop:${GITHUB_SHA} \
+            .
+
+      - name: Create namespace
+        run: |
+          kubectl create namespace devops-shop \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy Helm release
+        run: |
+          helm upgrade --install devops-shop ./helm/devops-shop \
+            --namespace devops-shop \
+            --set image.repository=devops-shop \
+            --set image.tag=${GITHUB_SHA} \
+            --set image.pullPolicy=Never
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status \
+            deployment/devops-shop-devops-shop \
+            --namespace devops-shop \
+            --timeout=180s
+
+      - name: Show resources
+        run: |
+          kubectl get pods -n devops-shop -o wide
+          kubectl get svc -n devops-shop
+
+      - name: Smoke test
+        run: |
+          kubectl port-forward \
+            --namespace devops-shop \
+            service/devops-shop-devops-shop \
+            18080:80 >/tmp/devops-shop-port-forward.log 2>&1 &
+
+          PF_PID=$!
+          trap 'kill $PF_PID || true' EXIT
+
+          sleep 5
+
+          curl --fail --retry 10 --retry-delay 2 \
+            http://127.0.0.1:18080/health
