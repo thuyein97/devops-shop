@@ -1,5 +1,7 @@
 FROM node:22-alpine AS dependencies
 
+RUN apk update && apk upgrade
+
 WORKDIR /app
 
 COPY package*.json ./
@@ -7,6 +9,8 @@ RUN npm ci --omit=dev
 
 
 FROM node:22-alpine AS production
+
+RUN apk update && apk upgrade
 
 WORKDIR /app
 
