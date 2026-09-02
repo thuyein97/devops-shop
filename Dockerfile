@@ -1,6 +1,6 @@
 FROM node:22-alpine AS dependencies
 
-RUN apk update && apk upgrade
+RUN apk update && apk upgrade && npm install -g npm@latest
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ RUN npm ci --omit=dev
 
 FROM node:22-alpine AS production
 
-RUN apk update && apk upgrade
+RUN apk update && apk upgrade && npm install -g npm@latest
 
 WORKDIR /app
 
