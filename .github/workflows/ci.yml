@@ -38,41 +38,83 @@ jobs:
         run: npm run build
 
   docker:
-    name: Docker Build
+    name: Docker Build & Deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+      security-events: write # REQUIRED for upload-sarif
     needs: test
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
       - name: Trivy file scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
-          format: 'table'
-          severity: HIGH,CRITICAL
-          exit-code: 1
+          format: 'sarif'
+          severity: 'HIGH,CRITICAL'
+          output: 'trivy-fs-results.sarif'
+          exit-code: '0'
+
+      - name: Upload Filesystem SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-results.sarif'
+          category: 'trivy-fs-scan'
+
+      - name: Log in to Docker Registry
+        uses: docker/login-action@v3
+        with:
+          # Leave registry blank for Docker Hub. For GHCR use 'ghcr.io'
+          registry: '' 
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
       - name: Build Docker image
-        run: docker build -t devops-shop:${{ github.sha }} .
+        env:
+          DOCKER_REPO: ${{ secrets.DOCKER_USERNAME }}/devops-shop # Format: organization/repository
+        run: docker build -t $DOCKER_REPO:${{ github.sha }} .
 
       - name: Trivy image scan
+        env:
+          DOCKER_REPO: ${{ secrets.DOCKER_USERNAME }}/devops-shop
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: devops-shop:${{ github.sha }}
-          severity: HIGH,CRITICAL
-          exit-code: 1
-      # 1. Authenticate with AWS using OIDC Role
+          scan-type: 'image'
+          image-ref: '${{ env.DOCKER_REPO }}:${{ github.sha }}'
+          format: 'sarif'
+          severity: 'HIGH,CRITICAL'
+          output: 'trivy-image-results.sarif'
+          exit-code: '0'
+
+      - name: Upload Image SARIF to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-image-results.sarif'
+          category: 'trivy-image-scan'      
+
+      - name: Push Image to Docker Registry
+        env:
+          DOCKER_REPO: ${{ secrets.DOCKER_USERNAME }}/devops-shop
+        run: docker push $DOCKER_REPO:${{ github.sha }}
+
       - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume:  ${{ secrets.AWS_ARN }} # Replace with your IAM Role ARN
-          aws-region: ${{ secrets.AWS_REGION }}                                             # Replace with your AWS Region
+          role-to-assume: ${{ secrets.AWS_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      # 2. Test OIDC Authentication (Check IAM Identity)
       - name: Test AWS OIDC Reachability
         run: |
           echo "Testing OIDC Authentication..."
