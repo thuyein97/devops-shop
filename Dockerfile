@@ -1,24 +1,24 @@
 FROM node:22-alpine AS dependencies
 
-RUN apk update && apk upgrade && npm install -g npm@latest
-
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --omit=dev
-
+RUN npm ci --omit=dev && npm cache clean --force
 
 FROM node:22-alpine AS production
 
-RUN apk update && apk upgrade && npm install -g npm@latest
+# Upgrade system packages (specifically OpenSSL/libcrypto3/libssl3)
+RUN apk update && apk upgrade --no-cache && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
 
+# Copy application files and node_modules from build stage
 COPY --from=dependencies /app/node_modules ./node_modules
-COPY package*.json ./
+COPY package.json ./
 COPY src ./src
 
 USER node
