@@ -144,6 +144,10 @@ jobs:
             --set image.repository=$DOCKER_REPO \
             --set image.tag=${{ github.sha }} \
             --set imagePullSecrets[0].name=external-registry-secret \
-            --wait
+            --wait \
             --atomic \
             --timeout 5m
+      - name: Test EKS Access
+        run: |
+          kubectl get nodes
+          kubectl get pods -A
