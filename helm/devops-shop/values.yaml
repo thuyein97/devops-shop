@@ -3,7 +3,7 @@ replicaCount: 2
 image:
   repository: devops-shop
   tag: local
-  pullPolicy: Never
+  pullPolicy: Always
 
 service:
   type: ClusterIP
