@@ -1,8 +1,8 @@
 replicaCount: 2
 
 image:
-  repository: devops-shop
-  tag: local
+  repository: ""
+  tag: ""
   pullPolicy: Always
 
 service:

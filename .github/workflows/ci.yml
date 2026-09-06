@@ -40,10 +40,12 @@ jobs:
   docker:
     name: Docker Build & Deploy
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       id-token: write
-      security-events: write # REQUIRED for upload-sarif
+      security-events: write
+
     needs: test
 
     steps:
@@ -54,6 +56,10 @@ jobs:
         uses: azure/setup-helm@v4
         with:
           version: 'v3.14.0'
+
+      # -------------------------
+      # Filesystem Security Scan
+      # -------------------------
 
       - name: Trivy file scan
         uses: aquasecurity/trivy-action@v0.36.0
@@ -72,26 +78,55 @@ jobs:
           sarif_file: 'trivy-fs-results.sarif'
           category: 'trivy-fs-scan'
 
-      - name: Log in to Docker Registry
-        uses: docker/login-action@v3
+      # -------------------------
+      # AWS OIDC
+      # -------------------------
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          # Leave registry blank for Docker Hub. For GHCR use 'ghcr.io'
-          registry: '' 
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          role-to-assume: ${{ secrets.AWS_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Test AWS OIDC
+        run: |
+          aws sts get-caller-identity
+
+      # -------------------------
+      # ECR Login
+      # -------------------------
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # -------------------------
+      # Docker Build
+      # -------------------------
 
       - name: Build Docker image
         env:
-          DOCKER_REPO: ${{ secrets.DOCKER_USERNAME }}/devops-shop # Format: organization/repository
-        run: docker build -t $DOCKER_REPO:${{ github.sha }} .
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: devops-shop
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            .
+
+      # -------------------------
+      # Trivy Image Scan
+      # -------------------------
 
       - name: Trivy image scan
         env:
-          DOCKER_REPO: ${{ secrets.DOCKER_USERNAME }}/devops-shop
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: devops-shop
+          IMAGE_TAG: ${{ github.sha }}
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
-          image-ref: '${{ env.DOCKER_REPO }}:${{ github.sha }}'
+          image-ref: '${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}'
           format: 'sarif'
           severity: 'HIGH,CRITICAL'
           output: 'trivy-image-results.sarif'
@@ -102,52 +137,52 @@ jobs:
         if: always()
         with:
           sarif_file: 'trivy-image-results.sarif'
-          category: 'trivy-image-scan'      
+          category: 'trivy-image-scan'
 
-      - name: Push Image to Docker Registry
+      # -------------------------
+      # Push to ECR
+      # -------------------------
+
+      - name: Push Image to ECR
         env:
-          DOCKER_REPO: ${{ secrets.DOCKER_USERNAME }}/devops-shop
-        run: docker push $DOCKER_REPO:${{ github.sha }}
-
-      - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Test AWS OIDC Reachability
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: devops-shop
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          echo "Testing OIDC Authentication..."
-          aws sts get-caller-identity
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      # -------------------------
+      # EKS
+      # -------------------------
 
       - name: Update Kubeconfig
         run: |
-          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+          aws eks update-kubeconfig \
+            --name ${{ secrets.EKS_CLUSTER_NAME }} \
+            --region ${{ secrets.AWS_REGION }}
 
-      - name: Create or Update Registry Secret in Kubernetes
-        run: |
-          kubectl create secret docker-registry external-registry-secret \
-            --namespace default \
-            --docker-server=https://docker.io \
-            --docker-username=${{ secrets.DOCKER_USERNAME }} \
-            --docker-password=${{ secrets.DOCKER_PASSWORD }} \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Deploy to EKS using Helm
-        env:
-          DOCKER_REPO: ${{ secrets.DOCKER_USERNAME }}/devops-shop
-          HELM_RELEASE_NAME: devops-shop-release
-          HELM_CHART_PATH: ./helm/devops-shop # Replace with your chart directory path
-        run: |
-          helm upgrade --install $HELM_RELEASE_NAME $HELM_CHART_PATH \
-            --namespace default \
-            --set image.repository=$DOCKER_REPO \
-            --set image.tag=${{ github.sha }} \
-            --set imagePullSecrets[0].name=external-registry-secret \
-            --wait \
-            --atomic \
-            --timeout 5m
       - name: Test EKS Access
         run: |
           kubectl get nodes
           kubectl get pods -A
+
+      # -------------------------
+      # Deploy
+      # -------------------------
+
+      - name: Deploy to EKS using Helm
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: devops-shop
+          IMAGE_TAG: ${{ github.sha }}
+          HELM_RELEASE_NAME: devops-shop-release
+          HELM_CHART_PATH: ./helm/devops-shop
+
+        run: |
+          helm upgrade --install $HELM_RELEASE_NAME $HELM_CHART_PATH \
+            --namespace default \
+            --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
+            --set image.tag=$IMAGE_TAG \
+            --wait \
+            --atomic \
+            --timeout 5m
