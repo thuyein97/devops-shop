@@ -55,11 +55,12 @@ module "eks" {
   eks_managed_node_groups = {
     default = {
       min_size     = 1
-      max_size     = 2
+      max_size     = 1
       desired_size = 1
 
       instance_types = ["t3.medium"] # Standard low-cost general compute
       capacity_type  = "SPOT"        # Use SPOT instances for ~70% cost savings
+      ami_type = "AL2023_x86_64_STANDARD"
     }
   }
 }

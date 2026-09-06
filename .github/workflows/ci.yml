@@ -119,3 +119,31 @@ jobs:
         run: |
           echo "Testing OIDC Authentication..."
           aws sts get-caller-identity
+
+      - name: Update Kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+
+      - name: Create or Update Registry Secret in Kubernetes
+        run: |
+          kubectl create secret docker-registry external-registry-secret \
+            --namespace default \
+            --docker-server=https://docker.io \
+            --docker-username=${{ secrets.DOCKER_USERNAME }} \
+            --docker-password=${{ secrets.DOCKER_PASSWORD }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy to EKS using Helm
+        env:
+          DOCKER_REPO: ${{ secrets.DOCKER_USERNAME }}/devops-shop
+          HELM_RELEASE_NAME: devops-shop-release
+          HELM_CHART_PATH: ./helm/devops-shop # Replace with your chart directory path
+        run: |
+          helm upgrade --install $HELM_RELEASE_NAME $HELM_CHART_PATH \
+            --namespace default \
+            --set image.repository=$DOCKER_REPO \
+            --set image.tag=${{ github.sha }} \
+            --set imagePullSecrets[0].name=external-registry-secret \
+            --wait
+            --atomic \
+            --timeout 5m

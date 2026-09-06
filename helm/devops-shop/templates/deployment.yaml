@@ -14,6 +14,8 @@ spec:
       labels:
         app.kubernetes.io/name: {{ include "devops-shop.name" . }}
     spec:
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
       containers:
         - name: devops-shop
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -39,4 +41,4 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
           resources:
-{{ toYaml .Values.resources | indent 12 }}
+            {{- toYaml .Values.resources | nindent 12 }}
