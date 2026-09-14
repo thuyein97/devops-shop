@@ -163,13 +163,15 @@ jobs:
       id-token: write
       security-events: write
 
-    needs: test
+    needs: build
     steps:
     - name: Configure AWS Credentials via OIDC
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ secrets.AWS_ARN }}
         aws-region: ${{ secrets.AWS_REGION }}
+    - name: Checkout
+      uses: actions/checkout@v4
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
@@ -214,6 +216,8 @@ jobs:
 
     needs: staging
     steps:
+    - name: Checkout
+      uses: actions/checkout@v4
     - name: Configure AWS Credentials via OIDC
       uses: aws-actions/configure-aws-credentials@v4
       with:
