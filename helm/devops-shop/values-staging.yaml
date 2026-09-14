@@ -1,7 +1,30 @@
 replicaCount: 2
 
 image:
-  pullPolicy: IfNotPresent
+  repository: ""
+  tag: ""
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+probes:
+  path: /health
 
 ingress:
+  enabled: false
+  host: devops-shop-staging.local
+
+monitoring:
   enabled: false
