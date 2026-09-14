@@ -37,8 +37,8 @@ jobs:
       - name: Application build
         run: npm run build
 
-  docker:
-    name: Docker Build & Deploy
+  build:
+    name: Build, Scan & Push
     runs-on: ubuntu-latest
 
     permissions:
@@ -154,54 +154,88 @@ jobs:
       # -------------------------
       # EKS
       # -------------------------
+  staging:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
 
-      - name: Update Kubeconfig
-        run: |
-          aws eks update-kubeconfig \
-            --name ${{ secrets.EKS_CLUSTER_NAME }} \
-            --region ${{ secrets.AWS_REGION }}
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
 
-      - name: Test EKS Access
-        run: |
-          kubectl get nodes
-          kubectl get pods -A
+    needs: test
+    steps:
+    - name: Configure AWS Credentials via OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ARN }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    - name: Update Kubeconfig
+      run: |
+        aws eks update-kubeconfig \
+          --name ${{ secrets.EKS_CLUSTER_NAME }} \
+          --region ${{ secrets.AWS_REGION }}
+    - name: Test EKS Access
+      run: |
+        kubectl get nodes
+        kubectl get pods -A
+    # -------------------------
+    # Deploy
+    # -------------------------
+    - name: Deploy to EKS using Helm
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: devops-shop
+        IMAGE_TAG: ${{ github.sha }}
+        HELM_RELEASE_NAME: devops-shop-release
+        HELM_CHART_PATH: ./helm/devops-shop
 
-      # -------------------------
-      # Deploy
-      # -------------------------
+      run: |
+        helm upgrade --install $HELM_RELEASE_NAME $HELM_CHART_PATH \
+          --namespace staging \
+          --create-namespace \
+          -f $HELM_CHART_PATH/values-staging.yaml \
+          --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
+          --set image.tag=$IMAGE_TAG \
+          --wait \
+          --atomic \
+          --timeout 5m
+  production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
 
-      - name: Deploy to EKS using Helm
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: devops-shop
-          IMAGE_TAG: ${{ github.sha }}
-          HELM_RELEASE_NAME: devops-shop-release
-          HELM_CHART_PATH: ./helm/devops-shop
-
-        run: |
-          helm upgrade --install $HELM_RELEASE_NAME $HELM_CHART_PATH \
-            --namespace staging \
-            --create-namespace \
-            -f $HELM_CHART_PATH/values-staging.yaml \
-            --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
-            --set image.tag=$IMAGE_TAG \
-            --wait \
-            --atomic \
-            --timeout 5m
-      - name: Deploy to EKS using Helm
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: devops-shop
-          IMAGE_TAG: ${{ github.sha }}
-          HELM_RELEASE_NAME: devops-shop-release
-          HELM_CHART_PATH: ./helm/devops-shop
-        run: |
-          helm upgrade --install $HELM_RELEASE_NAME $HELM_CHART_PATH \
-            --namespace production \
-            --create-namespace \
-            -f $HELM_CHART_PATH/values-production.yaml \
-            --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
-            --set image.tag=$IMAGE_TAG \
-            --wait \
-            --atomic \
-            --timeout 5m
+    needs: staging
+    steps:
+    - name: Configure AWS Credentials via OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ARN }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    - name: Deploy to EKS using Helm
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: devops-shop
+        IMAGE_TAG: ${{ github.sha }}
+        HELM_RELEASE_NAME: devops-shop-release
+        HELM_CHART_PATH: ./helm/devops-shop
+      run: |
+        helm upgrade --install $HELM_RELEASE_NAME $HELM_CHART_PATH \
+          --namespace production \
+          --create-namespace \
+          -f $HELM_CHART_PATH/values-production.yaml \
+          --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
+          --set image.tag=$IMAGE_TAG \
+          --wait \
+          --atomic \
+          --timeout 5m
