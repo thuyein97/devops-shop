@@ -226,6 +226,12 @@ jobs:
       uses: azure/setup-helm@v4
       with:
         version: 'v3.14.0'
+    - name: Check AWS role ARN
+      env:
+        AWS_ROLE_ARN: ${{ secrets.AWS_ARN }}
+      run: |
+        echo "Role ARN:"
+        echo "$AWS_ROLE_ARN"
     - name: Configure AWS Credentials via OIDC
       uses: aws-actions/configure-aws-credentials@v4
       with:
