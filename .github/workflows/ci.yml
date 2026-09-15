@@ -1,10 +1,10 @@
 name: CI
 
 on:
-  # pull_request:
-  #   branches: [main]
-  # push:
-  #   branches: [main]
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -144,6 +144,7 @@ jobs:
       # -------------------------
 
       - name: Push Image to ECR
+        if: github.event_name != 'pull_request'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: devops-shop
@@ -157,7 +158,7 @@ jobs:
   staging:
     name: Deploy to staging
     runs-on: ubuntu-latest
-
+    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       id-token: write
@@ -213,11 +214,11 @@ jobs:
     name: Deploy to Production
     runs-on: ubuntu-latest
     environment: production
+    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       id-token: write
       security-events: write
-
     needs: staging
     steps:
     - name: Checkout
