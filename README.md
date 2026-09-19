@@ -53,7 +53,7 @@ curl http://127.0.0.1:8080/api/products
 curl http://127.0.0.1:8080/metrics
 ```
 
-## 3. Run tests locally
+## 3. Run tests locally (Testing PR approval)
 
 ```bash
 npm ci
