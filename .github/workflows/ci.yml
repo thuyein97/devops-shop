@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Test and Lint
@@ -191,63 +195,19 @@ jobs:
       # EKS
       # -------------------------
   staging:
-    name: Deploy to staging
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
-    permissions:
-      contents: read
-      id-token: write
-      security-events: write
-
+    name: Deploy to Staging
     needs: build
-    steps:
-    - name: Configure AWS Credentials via OIDC
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: ${{ secrets.AWS_ARN }}
-        aws-region: ${{ secrets.AWS_REGION }}
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Set up Helm
-      uses: azure/setup-helm@v4
-      with:
-        version: 'v3.14.0'
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
-    - name: Update Kubeconfig
-      run: |
-        aws eks update-kubeconfig \
-          --name ${{ secrets.EKS_CLUSTER_NAME }} \
-          --region ${{ secrets.AWS_REGION }}
-    - name: Test EKS Access
-      run: |
-        kubectl get nodes
-        kubectl get pods -A
-    # -------------------------
-    # Deploy
-    # -------------------------
-    - name: Deploy to EKS using Helm
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: devops-shop
-        IMAGE_TAG: ${{ github.sha }}
-        HELM_RELEASE_NAME: devops-shop-release
-        HELM_CHART_PATH: ./helm/devops-shop
-
-      run: |
-        helm upgrade --install $HELM_RELEASE_NAME $HELM_CHART_PATH \
-          --namespace staging \
-          --create-namespace \
-          -f $HELM_CHART_PATH/values-staging.yaml \
-          --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
-          --set image.tag=$IMAGE_TAG \
-          --wait \
-          --atomic \
-          --timeout 5m
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/deploy-staging.yml
+    with:
+      image-tag: ${{ github.sha }}
+    secrets: inherit
   production:
     name: Deploy to Production
     runs-on: ubuntu-latest
+    concurrency:
+      group: production
+      cancel-in-progress: false
     environment: production
     if: github.event_name != 'pull_request'
     permissions:
@@ -292,3 +252,11 @@ jobs:
           --wait \
           --atomic \
           --timeout 5m
+    - name: Verify Production deployment
+      run: |
+        kubectl rollout status deployment/devops-shop \
+          -n production \
+          --timeout=5m
+
+        kubectl get pods -n production
+        kubectl get svc -n production
