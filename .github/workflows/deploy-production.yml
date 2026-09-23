@@ -90,7 +90,7 @@ jobs:
             --create-namespace \
             -f $HELM_CHART_PATH/values-production.yaml \
             --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
-            --set image.tag=does-not-exist \
+            --set image.tag=$IMAGE_TAG \
             --wait \
             --atomic \
             --timeout 5m
