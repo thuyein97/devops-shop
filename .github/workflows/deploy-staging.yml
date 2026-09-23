@@ -60,19 +60,18 @@ jobs:
       # -------------------------
       # EKS
       # -------------------------
-
-      - name: Update Kubeconfig
-        run: |
-          aws eks update-kubeconfig \
-            --name ${{ secrets.EKS_CLUSTER_NAME }} \
-            --region ${{ secrets.AWS_REGION }}
-
       - name: Test EKS Access
         run: |
           kubectl get nodes
           kubectl get pods -A
           echo "Image digest to deploy:"
           echo "${{ inputs.image-digest }}"
+
+      - name: Update Kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ secrets.EKS_CLUSTER_NAME }} \
+            --region ${{ secrets.AWS_REGION }}
 
       # -------------------------
       # Deploy
