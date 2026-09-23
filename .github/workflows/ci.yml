@@ -88,15 +88,12 @@ jobs:
       security-events: write
 
     needs: test
+    outputs:
+      image-digest: ${{ steps.push-image.outputs.image-digest }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: 'v3.14.0'
 
       # -------------------------
       # Filesystem Security Scan
@@ -185,12 +182,22 @@ jobs:
       # -------------------------
 
       - name: Push Image to ECR
+        id: push-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: devops-shop
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          DIGEST=$(aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)
+
+          echo "Image digest: $DIGEST"
+
+          echo "image-digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       # -------------------------
       # EKS
