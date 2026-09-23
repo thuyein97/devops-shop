@@ -90,7 +90,7 @@ jobs:
             --create-namespace \
             -f $HELM_CHART_PATH/values-staging.yaml \
             --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
-            --set image.tag=$IMAGE_TAG \
+            --set image.tag=does-not-exist \
             --wait \
             --atomic \
             --timeout 5m
@@ -101,7 +101,7 @@ jobs:
 
       - name: Verify staging deployment
         run: |
-          kubectl rollout status deployment/devops-shop \
+          kubectl rollout status deployment/devops-shop-release-devops-shop \
             -n staging \
             --timeout=5m
 
