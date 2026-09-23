@@ -208,7 +208,7 @@ jobs:
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/deploy-staging.yml
     with:
-      image-tag: ${{ github.sha }}
+      image-digest: ${{ needs.build.outputs.image-digest }}
     secrets: inherit
   production:
     name: Deploy to Production

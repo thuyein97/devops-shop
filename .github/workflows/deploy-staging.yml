@@ -3,8 +3,8 @@ name: Deploy Staging
 on:
   workflow_call:
     inputs:
-      image-tag:
-        description: Docker image tag to deploy
+      image-digest:
+        description: Docker image digest to deploy
         required: true
         type: string
     secrets:
@@ -71,6 +71,8 @@ jobs:
         run: |
           kubectl get nodes
           kubectl get pods -A
+          echo "Image digest to deploy:"
+          echo "${{ inputs.image-digest }}"
 
       # -------------------------
       # Deploy
@@ -80,7 +82,7 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: devops-shop
-          IMAGE_TAG: ${{ inputs.image-tag }}
+          IMAGE_DIGEST: ${{ inputs.image-digest }}
           HELM_RELEASE_NAME: devops-shop-release
           HELM_CHART_PATH: ./helm/devops-shop
 
@@ -90,7 +92,7 @@ jobs:
             --create-namespace \
             -f $HELM_CHART_PATH/values-staging.yaml \
             --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
-            --set image.tag=$IMAGE_TAG \
+            --set image.digest=$IMAGE_DIGEST \
             --wait \
             --atomic \
             --timeout 5m
