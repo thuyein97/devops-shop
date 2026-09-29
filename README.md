@@ -51,6 +51,7 @@ The main objectives are:
 # 🏛️ Architecture
 
 ```mermaid
+flowchart LR
     Dev["Developer"] --> PR["Pull Request"]
 
     PR --> CI["GitHub Actions CI"]
