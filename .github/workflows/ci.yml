@@ -212,11 +212,11 @@ jobs:
     secrets: inherit
   production:
     name: Deploy to Production
-    needs: staging
+    needs: [build, staging]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/deploy-production.yml
     with:
-      image-tag: ${{ github.sha }}
+      image-digest: ${{ needs.build.outputs.image-digest }}
     secrets: inherit
     concurrency:
       group: production
