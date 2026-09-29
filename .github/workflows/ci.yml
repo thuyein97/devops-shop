@@ -210,7 +210,7 @@ jobs:
     with:
       image-digest: ${{ needs.build.outputs.image-digest }}
     secrets: inherit
-  production:
+  production:ok 
     name: Deploy to Production
     needs: [build, staging]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
