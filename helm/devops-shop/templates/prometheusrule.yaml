@@ -1,0 +1,62 @@
+{{- if .Values.alerting.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "devops-shop.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "devops-shop.labels" . | nindent 4 }}
+    release: {{ .Values.serviceMonitor.release | default "prometheus" }}
+spec:
+  groups:
+    - name: devops-shop.rules
+      rules:
+
+        # High HTTP 5xx error rate
+        - alert: DevOpsShopHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{status=~"5.."}[5m]))
+              /
+              sum(rate(http_requests_total[5m]))
+            ) * 100 > {{ .Values.alerting.rules.highErrorRate.threshold }}
+          for: {{ .Values.alerting.rules.highErrorRate.for }}
+          labels:
+            severity: warning
+            app: devops-shop
+          annotations:
+            summary: "DevOps Shop has a high HTTP error rate"
+            description: "HTTP 5xx error rate is above {{ .Values.alerting.rules.highErrorRate.threshold }}% for 5 minutes."
+
+        # High p95 HTTP latency
+        - alert: DevOpsShopHighLatency
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (le) (
+                rate(http_request_duration_seconds_bucket[5m])
+              )
+            ) > {{ .Values.alerting.rules.highLatency.threshold }}
+          for: {{ .Values.alerting.rules.highLatency.for }}
+          labels:
+            severity: warning
+            app: devops-shop
+          annotations:
+            summary: "DevOps Shop has high HTTP latency"
+            description: "p95 HTTP request latency is above {{ .Values.alerting.rules.highLatency.threshold }} seconds for 5 minutes."
+
+        # Application unavailable
+        - alert: DevOpsShopAppDown
+          expr: |
+              kube_deployment_status_replicas_available{
+                namespace="{{ .Release.Namespace }}",
+                deployment="{{ include "devops-shop.fullname" . }}"
+              } < 1
+          for: {{ .Values.alerting.rules.appDown.for }}
+          labels:
+            severity: critical
+            app: devops-shop
+          annotations:
+            summary: "DevOps Shop application is down"
+            description: "Prometheus cannot scrape the DevOps Shop application."
+{{- end }}

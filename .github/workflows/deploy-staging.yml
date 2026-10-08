@@ -1,0 +1,75 @@
+name: Deploy Staging
+
+on:
+  workflow_call:
+    inputs:
+      image-digest:
+        description: Docker image digest to promote
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    name: Promote Image to Staging GitOps
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: thuyein97/devops-shop-gitops
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Update staging image digest
+        working-directory: gitops
+        env:
+          IMAGE_DIGEST: ${{ inputs.image-digest }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          path = Path("environments/staging/values-staging.yaml")
+          content = path.read_text()
+
+          digest = os.environ["IMAGE_DIGEST"]
+
+          content = re.sub(
+              r'(^\s*digest:\s*).*$',
+              rf'\g<1>{digest}',
+              content,
+              count=1,
+              flags=re.MULTILINE
+          )
+
+          path.write_text(content)
+          PY
+
+      - name: Show updated values
+        working-directory: gitops
+        run: |
+          echo "Updated staging values:"
+          cat environments/staging/values-staging.yaml
+
+      - name: Commit and push GitOps change
+        working-directory: gitops
+        env:
+          IMAGE_DIGEST: ${{ inputs.image-digest }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add environments/staging/values-staging.yaml
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(staging): promote image ${IMAGE_DIGEST}"
+          git push

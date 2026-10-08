@@ -1,0 +1,58 @@
+replicaCount: 1
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: Never
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+probes:
+  path: /health
+
+ingress:
+  enabled: false
+  host: devops-shop.local
+
+monitoring:
+  enabled: false
+
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  # Must match the release name of your installed kube-prometheus-stack release
+  release: prometheus
+
+alerting:
+  enabled: true
+
+  rules:
+    highErrorRate:
+      enabled: true
+      threshold: 5
+      for: 5m
+
+    highLatency:
+      enabled: true
+      threshold: 0.5
+      for: 5m
+
+    appDown:
+      enabled: true
+      for: 2m
+      
+alertmanager:
+  alertmanagerSpec:
+    secrets:
+      - alertmanager-slack

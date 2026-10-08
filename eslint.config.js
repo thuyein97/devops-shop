@@ -1,0 +1,20 @@
+const globals = require("globals");
+
+module.exports = [
+  {
+    files: ["**/*.js"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "commonjs",
+      globals: {
+        ...globals.node,
+        ...globals.jest
+      }
+    },
+    rules: {
+      semi: ["error", "always"],
+      quotes: ["error", "double"],
+      "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }]
+    }
+  }
+];

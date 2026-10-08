@@ -1,0 +1,223 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test and Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit/API tests
+        run: npm test
+
+      - name: Application build
+        run: npm run build
+
+  pr-security:
+    name: PR Docker Build & Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'pull_request'
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t devops-shop:${{ github.sha }} \
+            .
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: devops-shop:${{ github.sha }}
+          format: sarif
+          severity: HIGH,CRITICAL
+          output: trivy-pr-results.sarif
+          exit-code: 0
+
+      - name: Upload PR Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-pr-results.sarif
+          category: trivy-pr-scan
+  build:
+    name: Build, Scan & Push
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' 
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+
+    needs: test
+    outputs:
+      image-digest: ${{ steps.push-image.outputs.image-digest }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # -------------------------
+      # Filesystem Security Scan
+      # -------------------------
+
+      - name: Trivy file scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          severity: 'HIGH,CRITICAL'
+          output: 'trivy-fs-results.sarif'
+          exit-code: '0'
+
+      - name: Upload Filesystem SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-results.sarif'
+          category: 'trivy-fs-scan'
+
+      # -------------------------
+      # AWS OIDC
+      # -------------------------
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Test AWS OIDC
+        run: |
+          aws sts get-caller-identity
+
+      # -------------------------
+      # ECR Login
+      # -------------------------
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # -------------------------
+      # Docker Build
+      # -------------------------
+
+      - name: Build Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: devops-shop
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            .
+
+      # -------------------------
+      # Trivy Image Scan
+      # -------------------------
+
+      - name: Trivy image scan
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: devops-shop
+          IMAGE_TAG: ${{ github.sha }}
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: '${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}'
+          format: 'sarif'
+          severity: 'HIGH,CRITICAL'
+          output: 'trivy-image-results.sarif'
+          exit-code: '0'
+
+      - name: Upload Image SARIF to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-image-results.sarif'
+          category: 'trivy-image-scan'
+
+      # -------------------------
+      # Push to ECR
+      # -------------------------
+
+      - name: Push Image to ECR
+        id: push-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: devops-shop
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          DIGEST=$(aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)
+
+          echo "Image digest: $DIGEST"
+
+          echo "image-digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      # -------------------------
+      # EKS
+      # -------------------------
+  staging:
+    name: Deploy to Staging
+    needs: build
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/deploy-staging.yml
+    with:
+      image-digest: ${{ needs.build.outputs.image-digest }}
+    secrets: inherit
+  production:
+    name: Deploy to Production
+    needs: [build, staging]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy-production.yml
+    with:
+      image-digest: ${{ needs.build.outputs.image-digest }}
+    secrets: inherit
+    concurrency:
+      group: production
+      cancel-in-progress: false
