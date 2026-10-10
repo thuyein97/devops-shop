@@ -213,7 +213,9 @@ jobs:
   production:
     name: Deploy to Production
     needs: [build, staging]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/deploy-production.yml
     with:
       image-digest: ${{ needs.build.outputs.image-digest }}
