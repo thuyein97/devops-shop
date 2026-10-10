@@ -15,7 +15,8 @@ jobs:
   production:
     name: Promote Image to Production GitOps
     runs-on: ubuntu-latest
-
+    environment:
+      name: production
     steps:
       - name: Checkout GitOps repository
         uses: actions/checkout@v4

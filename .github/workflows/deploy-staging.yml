@@ -23,37 +23,42 @@ jobs:
           repository: thuyein97/devops-shop-gitops
           token: ${{ secrets.GITOPS_TOKEN }}
           path: gitops
+          ref: main
 
       - name: Update staging image digest
         working-directory: gitops
         env:
           IMAGE_DIGEST: ${{ inputs.image-digest }}
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
           import os
           import re
 
           path = Path("environments/staging/values-staging.yaml")
-          content = path.read_text()
-
           digest = os.environ["IMAGE_DIGEST"]
 
-          content = re.sub(
-              r'(^\s*digest:\s*).*$',
-              rf'\g<1>{digest}',
+          if not re.fullmatch(r"sha256:[a-fA-F0-9]{64}", digest):
+              raise SystemExit(f"Invalid image digest: {digest}")
+
+          content = path.read_text()
+
+          updated, count = re.subn(
+              r"(?m)^(\s*digest:\s*).*$",
+              lambda match: f'{match.group(1)}"{digest}"',
               content,
               count=1,
-              flags=re.MULTILINE
           )
 
-          path.write_text(content)
+          if count != 1:
+              raise SystemExit("Could not find image.digest in staging values")
+
+          path.write_text(updated)
           PY
 
       - name: Show updated values
         working-directory: gitops
         run: |
-          echo "Updated staging values:"
           cat environments/staging/values-staging.yaml
 
       - name: Commit and push GitOps change
@@ -67,9 +72,9 @@ jobs:
           git add environments/staging/values-staging.yaml
 
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+            echo "No GitOps changes to commit."
             exit 0
           fi
 
           git commit -m "chore(staging): promote image ${IMAGE_DIGEST}"
-          git push
+          git push origin HEAD:main
