@@ -1,0 +1,105 @@
+alertmanager:
+  alertmanagerSpec:
+    secrets:
+      - alertmanager-slack
+
+  config:
+    global:
+      resolve_timeout: 5m
+
+    # ROUTING TREE
+    route:
+      receiver: devops-shop-slack  # Catch-all default
+      group_by:
+        - alertname
+        - namespace
+        - app
+        - severity
+      group_wait: 10s
+      group_interval: 5m
+      repeat_interval: 12h
+
+      routes:
+        # 1. Ignore Watchdog alerts
+        - matchers:
+            - alertname = Watchdog
+          receiver: "null"
+
+        # 2. Route alerts from "prod" namespace
+        - matchers:
+            - namespace = "prod"
+          receiver: slack-prod
+
+        # 3. Route alerts from "staging" namespace
+        - matchers:
+            - namespace = "staging"
+          receiver: slack-staging
+
+        # 4. Route alerts from "monitoring" or "kube-system"
+        - matchers:
+            - namespace =~ "monitoring|kube-system"
+          receiver: slack-infra
+
+    # RECEIVERS DEFINITION
+    receivers:
+      - name: "null"
+
+      # 1. Catch-all Default Channel (#devops-alerts)
+      - name: devops-shop-slack
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/slack_api_url
+            channel: "#devops-alert"
+            send_resolved: true
+            http_config:
+              authorization:
+                credentials_file: /etc/alertmanager/secrets/alertmanager-slack/token
+            title: '{{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+            text: |
+              *Summary:* {{ .CommonAnnotations.summary }}
+              *Namespace:* {{ .CommonLabels.namespace }}
+              *Severity:* {{ .CommonLabels.severity }}
+
+      # 2. Production Channel (#prd-alerts)
+      - name: slack-prod
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/slack_api_url
+            channel: "#prd-alerts"
+            send_resolved: true
+            http_config:
+              authorization:
+                credentials_file: /etc/alertmanager/secrets/alertmanager-slack/token
+            title: '🚨 {{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+            text: |
+              *Summary:* {{ .CommonAnnotations.summary }}
+              *Namespace:* {{ .CommonLabels.namespace }}
+              *Severity:* {{ .CommonLabels.severity }}
+
+      # 3. Staging Channel (#staging-alerts)
+      - name: slack-staging
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/slack_api_url
+            channel: "#staging-alerts"
+            send_resolved: true
+            http_config:
+              authorization:
+                credentials_file: /etc/alertmanager/secrets/alertmanager-slack/token
+            title: '⚠ {{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+            text: |
+              *Summary:* {{ .CommonAnnotations.summary }}
+              *Namespace:* {{ .CommonLabels.namespace }}
+              *Severity:* {{ .CommonLabels.severity }}
+
+      # 4. Infrastructure Channel (#infra-alerts)
+      - name: slack-infra
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/slack_api_url
+            channel: "#infra-alerts"
+            send_resolved: true
+            http_config:
+              authorization:
+                credentials_file: /etc/alertmanager/secrets/alertmanager-slack/token
+            title: '🛠️ {{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+            text: |
+              *Summary:* {{ .CommonAnnotations.summary }}
+              *Namespace:* {{ .CommonLabels.namespace }}
+              *Severity:* {{ .CommonLabels.severity }}

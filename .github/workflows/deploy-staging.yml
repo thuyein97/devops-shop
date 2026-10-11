@@ -1,0 +1,80 @@
+name: Deploy Staging
+
+on:
+  workflow_call:
+    inputs:
+      image-digest:
+        description: Docker image digest to promote
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    name: Promote Image to Staging GitOps
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: thuyein97/devops-shop-gitops
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+          ref: main
+
+      - name: Update staging image digest
+        working-directory: gitops
+        env:
+          IMAGE_DIGEST: ${{ inputs.image-digest }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          path = Path("environments/staging/values-staging.yaml")
+          digest = os.environ["IMAGE_DIGEST"]
+
+          if not re.fullmatch(r"sha256:[a-fA-F0-9]{64}", digest):
+              raise SystemExit(f"Invalid image digest: {digest}")
+
+          content = path.read_text()
+
+          updated, count = re.subn(
+              r"(?m)^(\s*digest:\s*).*$",
+              lambda match: f'{match.group(1)}"{digest}"',
+              content,
+              count=1,
+          )
+
+          if count != 1:
+              raise SystemExit("Could not find image.digest in staging values")
+
+          path.write_text(updated)
+          PY
+
+      - name: Show updated values
+        working-directory: gitops
+        run: |
+          cat environments/staging/values-staging.yaml
+
+      - name: Commit and push GitOps change
+        working-directory: gitops
+        env:
+          IMAGE_DIGEST: ${{ inputs.image-digest }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add environments/staging/values-staging.yaml
+
+          if git diff --cached --quiet; then
+            echo "No GitOps changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(staging): promote image ${IMAGE_DIGEST}"
+          git push origin HEAD:main

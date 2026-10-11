@@ -1,0 +1,21 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "devops-shop.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "devops-shop.labels" . | nindent 4 }}
+    # CRITICAL: This label MUST match Prometheus Operator's serviceMonitorSelector
+    release: {{ .Values.serviceMonitor.release | default "prometheus" }}
+spec:
+  # Selects which Kubernetes Service(s) to monitor based on labels
+  selector:
+    matchLabels:
+      {{- include "devops-shop.selectorLabels" . | nindent 6 }}
+  # Tells Prometheus which endpoint/port on the Service to scrape
+  endpoints:
+    - port: http # Refers to name: http in templates/service.yaml
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval | default "15s" }}
+{{- end }}
